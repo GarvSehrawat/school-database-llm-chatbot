@@ -1,10 +1,10 @@
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
-
+from backend.api.students import router as students_router
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-
+from backend.core.exception_handlers import register_exception_handlers
 from backend.config import settings
 from backend.database import SessionLocal, create_database_tables
 
@@ -28,6 +28,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+register_exception_handlers(app)
+app.include_router(students_router)
 
 @app.get("/", tags=["General"])
 def root() -> dict[str, str]:
