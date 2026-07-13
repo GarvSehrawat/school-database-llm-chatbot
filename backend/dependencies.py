@@ -95,8 +95,11 @@ def get_analytics_service(
     analytics_repository: AnalyticsRepository = Depends(
         get_analytics_repository
     ),
+    student_service: StudentService = Depends(get_student_service),
 ) -> AnalyticsService:
     """Provide an AnalyticsService."""
+
     return AnalyticsService(
         analytics_repository=analytics_repository,
+        student_service=student_service,
     )
