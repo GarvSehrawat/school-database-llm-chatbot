@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from backend.core.exception_handlers import register_exception_handlers
 from backend.config import settings
 from backend.database import SessionLocal, create_database_tables
+from backend.api.analytics import router as analytics_router
 
 
 @asynccontextmanager
@@ -30,6 +31,7 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.include_router(students_router)
+app.include_router(analytics_router)
 
 @app.get("/", tags=["General"])
 def root() -> dict[str, str]:
