@@ -1,0 +1,4 @@
+student_id,name,email,branch,current_semester,section,admission_year
+STU121,Manav Arora,manav.arora@example.com,CSE,5,A,2023
+STU122,Kavya Saini,kavya.saini@example.com,IT,5,B,2023
+STU123,Yash Thakur,yash.thakur@example.com,ECE,4,A,2024

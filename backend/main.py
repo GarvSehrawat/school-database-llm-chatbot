@@ -8,6 +8,7 @@ from backend.core.exception_handlers import register_exception_handlers
 from backend.config import settings
 from backend.database import SessionLocal, create_database_tables
 from backend.api.analytics import router as analytics_router
+from backend.api.uploads import router as uploads_router
 
 
 @asynccontextmanager
@@ -65,3 +66,10 @@ def health_check() -> dict[str, Any]:
             "llm": "not_configured",
             "version": "0.1.0",
         }
+
+
+register_exception_handlers(app)
+
+app.include_router(students_router)
+app.include_router(analytics_router)
+app.include_router(uploads_router)

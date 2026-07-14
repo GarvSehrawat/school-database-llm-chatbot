@@ -14,6 +14,7 @@ from backend.repositories.fee_repository import FeeRepository
 from backend.services.fee_service import FeeService 
 from backend.repositories.analytics_repository import AnalyticsRepository
 from backend.services.analytics_service import AnalyticsService
+from backend.services.csv_service import CSVService
 
 def get_student_repository(
     db: Session = Depends(get_db),
@@ -103,3 +104,9 @@ def get_analytics_service(
         analytics_repository=analytics_repository,
         student_service=student_service,
     )
+
+def get_csv_service(
+    db: Session = Depends(get_db),
+) -> CSVService:
+    """Provide a CSVService for the current request."""
+    return CSVService(db)
