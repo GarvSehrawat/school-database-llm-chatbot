@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from backend.models.student import Student
+from backend.models.subject import Subject
 from backend.schemas.upload import UploadRowError, UploadSummaryResponse
 
 
@@ -27,6 +28,14 @@ class CSVService:
     STUDENT_OPTIONAL_COLUMNS = {
         "email",
         "section",
+    }
+
+    SUBJECT_REQUIRED_COLUMNS = {
+        "subject_code",
+        "subject_name",
+        "semester",
+        "maximum_marks",
+        "credit",
     }
 
     def __init__(self, db: Session) -> None:
@@ -97,6 +106,23 @@ class CSVService:
         return int(numeric_value)
 
     @staticmethod
+    def _parse_float(
+        value: object,
+        field_name: str,
+    ) -> float:
+        """Convert a CSV value into a floating-point number."""
+
+        if pd.isna(value):
+            raise ValueError(f"{field_name} is required.")
+
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be a valid number."
+            ) from exc
+
+    @staticmethod
     def _validate_csv_filename(filename: str | None) -> None:
         """Ensure the uploaded file has a CSV extension."""
 
@@ -140,17 +166,15 @@ class CSVService:
 
         return dataframe
 
-    def _validate_student_columns(
-        self,
+    @staticmethod
+    def _validate_required_columns(
         dataframe: pd.DataFrame,
+        required_columns: set[str],
     ) -> None:
-        """Check that all required student columns exist."""
+        """Check that all required columns exist in a DataFrame."""
 
         available_columns = set(dataframe.columns)
-
-        missing_columns = (
-            self.STUDENT_REQUIRED_COLUMNS - available_columns
-        )
+        missing_columns = required_columns - available_columns
 
         if missing_columns:
             formatted_columns = ", ".join(sorted(missing_columns))
@@ -176,7 +200,10 @@ class CSVService:
             filename=filename,
         )
 
-        self._validate_student_columns(dataframe)
+        self._validate_required_columns(
+            dataframe=dataframe,
+            required_columns=self.STUDENT_REQUIRED_COLUMNS,
+        )
 
         total_rows = len(dataframe)
         inserted_rows = 0
@@ -297,14 +324,147 @@ class CSVService:
             self.db.rollback()
             raise
 
-        failed_rows = len(errors)
-
         return UploadSummaryResponse(
             file_type="students",
             total_rows=total_rows,
             inserted_rows=inserted_rows,
             updated_rows=updated_rows,
             skipped_rows=skipped_rows,
-            failed_rows=failed_rows,
+            failed_rows=len(errors),
+            errors=errors,
+        )
+
+    def import_subjects(
+        self,
+        file_content: bytes,
+        filename: str | None,
+        replace_existing: bool = False,
+    ) -> UploadSummaryResponse:
+        """
+        Validate and import subjects from a CSV file.
+
+        Existing subjects are skipped unless replace_existing is true.
+        """
+
+        dataframe = self._read_csv(
+            file_content=file_content,
+            filename=filename,
+        )
+
+        self._validate_required_columns(
+            dataframe=dataframe,
+            required_columns=self.SUBJECT_REQUIRED_COLUMNS,
+        )
+
+        total_rows = len(dataframe)
+        inserted_rows = 0
+        updated_rows = 0
+        skipped_rows = 0
+        errors: list[UploadRowError] = []
+
+        try:
+            for dataframe_index, row in dataframe.iterrows():
+                csv_row_number = int(dataframe_index) + 2
+
+                try:
+                    subject_code = self._clean_required_string(
+                        row.get("subject_code"),
+                        "subject_code",
+                    ).upper()
+
+                    subject_name = self._clean_required_string(
+                        row.get("subject_name"),
+                        "subject_name",
+                    )
+
+                    semester = self._parse_integer(
+                        row.get("semester"),
+                        "semester",
+                    )
+
+                    maximum_marks = self._parse_integer(
+                        row.get("maximum_marks"),
+                        "maximum_marks",
+                    )
+
+                    credit = self._parse_float(
+                        row.get("credit"),
+                        "credit",
+                    )
+
+                    if not 1 <= semester <= 8:
+                        raise ValueError(
+                            "semester must be between 1 and 8."
+                        )
+
+                    if maximum_marks <= 0:
+                        raise ValueError(
+                            "maximum_marks must be greater than 0."
+                        )
+
+                    if credit <= 0:
+                        raise ValueError(
+                            "credit must be greater than 0."
+                        )
+
+                    existing_subject = self.db.scalar(
+                        select(Subject).where(
+                            Subject.subject_code == subject_code
+                        )
+                    )
+
+                    if existing_subject is not None:
+                        if not replace_existing:
+                            skipped_rows += 1
+                            continue
+
+                        existing_subject.subject_name = subject_name
+                        existing_subject.semester = semester
+                        existing_subject.maximum_marks = maximum_marks
+                        existing_subject.credit = credit
+
+                        updated_rows += 1
+                        continue
+
+                    subject = Subject(
+                        subject_code=subject_code,
+                        subject_name=subject_name,
+                        semester=semester,
+                        maximum_marks=maximum_marks,
+                        credit=credit,
+                    )
+
+                    self.db.add(subject)
+                    inserted_rows += 1
+
+                except ValueError as exc:
+                    errors.append(
+                        UploadRowError(
+                            row=csv_row_number,
+                            field=None,
+                            message=str(exc),
+                        )
+                    )
+
+            self.db.commit()
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise ValueError(
+                "The CSV contains duplicate or conflicting subject data."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return UploadSummaryResponse(
+            file_type="subjects",
+            total_rows=total_rows,
+            inserted_rows=inserted_rows,
+            updated_rows=updated_rows,
+            skipped_rows=skipped_rows,
+            failed_rows=len(errors),
             errors=errors,
         )
