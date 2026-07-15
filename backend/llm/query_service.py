@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from fastapi.encoders import jsonable_encoder
 
-from backend.llm.parser import QueryParser
+from backend.llm.hybrid_parser import HybridQueryParser
 from backend.llm.schemas import ParsedQuery, QueryIntent, QueryResult
 from backend.services.analytics_service import AnalyticsService
 from backend.services.attendance_service import AttendanceService
 from backend.services.fee_service import FeeService
 from backend.services.mark_service import MarkService
 from backend.services.student_service import StudentService
-
+from backend.llm.formatter import QueryAnswerFormatter
 
 class QueryService:
     """
@@ -28,14 +28,16 @@ class QueryService:
         attendance_service: AttendanceService,
         fee_service: FeeService,
         analytics_service: AnalyticsService,
-        parser: QueryParser | None = None,
+        parser: HybridQueryParser | None = None,
+        formatter: QueryAnswerFormatter | None = None,
     ) -> None:
         self.student_service = student_service
         self.mark_service = mark_service
         self.attendance_service = attendance_service
         self.fee_service = fee_service
         self.analytics_service = analytics_service
-        self.parser = parser or QueryParser()
+        self.parser = parser or HybridQueryParser()
+        self.formatter = formatter or QueryAnswerFormatter()
 
     def execute(self, query: str) -> QueryResult:
         """Parse and execute a natural-language query."""
@@ -233,20 +235,28 @@ class QueryService:
             data=None,
         )
 
-    @staticmethod
+
     def _build_result(
+        self,
         query: str,
         parsed_query: ParsedQuery,
         message: str,
         data: object,
     ) -> QueryResult:
-        """Create a JSON-safe query response."""
+        """Create a JSON-safe query response with a readable answer."""
+
+        encoded_data = jsonable_encoder(data)
+
+        readable_answer = self.formatter.format(
+            parsed_query=parsed_query,
+            data=encoded_data,
+        )
 
         return QueryResult(
             query=query,
             parsed_query=parsed_query,
-            message=message,
-            data=jsonable_encoder(data),
+            message=readable_answer or message,
+            data=encoded_data,
         )
 
     @staticmethod
