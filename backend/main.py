@@ -9,6 +9,8 @@ from backend.config import settings
 from backend.database import SessionLocal, create_database_tables
 from backend.api.analytics import router as analytics_router
 from backend.api.uploads import router as uploads_router
+from backend.api.query import router as query_router
+
 
 
 @asynccontextmanager
@@ -33,6 +35,7 @@ app = FastAPI(
 register_exception_handlers(app)
 app.include_router(students_router)
 app.include_router(analytics_router)
+app.include_router(query_router)
 
 @app.get("/", tags=["General"])
 def root() -> dict[str, str]:

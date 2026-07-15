@@ -84,14 +84,22 @@ class ParsedQuery(BaseModel):
             QueryIntent.GET_STUDENT_RANK,
         }
 
+        semester_intents = {
+            QueryIntent.GET_STUDENT_RANK,
+            QueryIntent.GET_TOP_STUDENTS,
+            QueryIntent.GET_BRANCH_TOPPERS,
+        }
+
         if self.intent in student_intents and not self.student_id:
             raise ValueError(
-                f"student_id is required for intent '{self.intent.value}'."
+                f"student_id is required for intent "
+                f"'{self.intent.value}'."
             )
 
-        if self.intent == QueryIntent.GET_BRANCH_TOPPERS and not self.branch:
+        if self.intent in semester_intents and self.semester is None:
             raise ValueError(
-                "branch is required for intent 'get_branch_toppers'."
+                f"semester is required for intent "
+                f"'{self.intent.value}'."
             )
 
         return self
