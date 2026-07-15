@@ -1,0 +1,4 @@
+student_id,subject_code,semester,classes_held,classes_attended,academic_year
+STU121,CS201,2,40,36,2025-2026
+STU122,CS202,2,42,34,2025-2026
+STU123,CS203,2,38,29,2025-2026

@@ -13,6 +13,7 @@ from backend.models.mark import Mark
 from backend.models.student import Student
 from backend.models.subject import Subject
 from backend.schemas.upload import UploadRowError, UploadSummaryResponse
+from backend.models.attendance import Attendance
 
 
 class CSVService:
@@ -41,6 +42,15 @@ class CSVService:
         "internal_marks",
         "external_marks",
         "exam_type",
+        "academic_year",
+    }
+
+    ATTENDANCE_REQUIRED_COLUMNS = {
+        "student_id",
+        "subject_code",
+        "semester",
+        "classes_held",
+        "classes_attended",
         "academic_year",
     }
 
@@ -739,6 +749,197 @@ class CSVService:
 
         return UploadSummaryResponse(
             file_type="marks",
+            total_rows=total_rows,
+            inserted_rows=inserted_rows,
+            updated_rows=updated_rows,
+            skipped_rows=skipped_rows,
+            failed_rows=len(errors),
+            errors=errors,
+        )
+    
+    def import_attendance(
+        self,
+        file_content: bytes,
+        filename: str | None,
+        replace_existing: bool = False,
+    ) -> UploadSummaryResponse:
+        """
+        Validate and import subject-level attendance records.
+        Students and subjects must already exist. An attendance record is
+        uniquely identified by student, subject, semester, and academic year.
+        """
+
+        dataframe = self._read_csv(
+            file_content=file_content,
+            filename=filename,
+        )
+
+        self._validate_required_columns(
+            dataframe=dataframe,
+            required_columns=self.ATTENDANCE_REQUIRED_COLUMNS,
+        )
+
+        total_rows = len(dataframe)
+        inserted_rows = 0
+        updated_rows = 0
+        skipped_rows = 0
+        errors: list[UploadRowError] = []
+
+        try:
+            for dataframe_index, row in dataframe.iterrows():
+                csv_row_number = int(dataframe_index) + 2
+
+                try:
+                    student_school_id = self._clean_required_string(
+                        row.get("student_id"),
+                        "student_id",
+                    ).upper()
+
+                    subject_code = self._clean_required_string(
+                        row.get("subject_code"),
+                        "subject_code",
+                    ).upper()
+
+                    semester = self._parse_integer(
+                        row.get("semester"),
+                        "semester",
+                    )
+
+                    classes_held = self._parse_integer(
+                        row.get("classes_held"),
+                        "classes_held",
+                    )
+
+                    classes_attended = self._parse_integer(
+                        row.get("classes_attended"),
+                        "classes_attended",
+                    )
+
+                    academic_year = self._clean_required_string(
+                        row.get("academic_year"),
+                        "academic_year",
+                    )
+
+                    if not 1 <= semester <= 8:
+                        raise ValueError(
+                            "semester must be between 1 and 8."
+                        )
+
+                    if classes_held < 0:
+                        raise ValueError(
+                            "classes_held cannot be negative."
+                        )
+
+                    if classes_attended < 0:
+                        raise ValueError(
+                            "classes_attended cannot be negative."
+                        )
+
+                    if classes_attended > classes_held:
+                        raise ValueError(
+                            "classes_attended cannot exceed classes_held."
+                        )
+
+                    student = self.db.scalar(
+                        select(Student).where(
+                            Student.student_id == student_school_id
+                        )
+                    )
+
+                    if student is None:
+                        raise ValueError(
+                            f"Student '{student_school_id}' does not exist."
+                        )
+
+                    subject = self.db.scalar(
+                        select(Subject).where(
+                            Subject.subject_code == subject_code
+                        )
+                    )
+
+                    if subject is None:
+                        raise ValueError(
+                            f"Subject '{subject_code}' does not exist."
+                        )
+
+                    if subject.semester != semester:
+                        raise ValueError(
+                            f"Subject '{subject_code}' belongs to semester "
+                            f"{subject.semester}, not semester {semester}."
+                        )
+
+                    attendance_percentage = (
+                        round(
+                            (classes_attended / classes_held) * 100,
+                            2,
+                        )
+                        if classes_held > 0
+                        else 0.0
+                    )
+
+                    existing_attendance = self.db.scalar(
+                        select(Attendance).where(
+                            Attendance.student_id == student.id,
+                            Attendance.subject_id == subject.id,
+                            Attendance.semester == semester,
+                            Attendance.academic_year == academic_year,
+                        )
+                    )
+
+                    if existing_attendance is not None:
+                        if not replace_existing:
+                            skipped_rows += 1
+                            continue
+
+                        existing_attendance.classes_held = classes_held
+                        existing_attendance.classes_attended = (
+                            classes_attended
+                        )
+                        existing_attendance.attendance_percentage = (
+                            attendance_percentage
+                        )
+
+                        updated_rows += 1
+                        continue
+
+                    attendance = Attendance(
+                        student_id=student.id,
+                        subject_id=subject.id,
+                        semester=semester,
+                        classes_held=classes_held,
+                        classes_attended=classes_attended,
+                        attendance_percentage=attendance_percentage,
+                        academic_year=academic_year,
+                    )
+
+                    self.db.add(attendance)
+                    inserted_rows += 1
+
+                except ValueError as exc:
+                    errors.append(
+                        UploadRowError(
+                            row=csv_row_number,
+                            field=None,
+                            message=str(exc),
+                        )
+                    )
+
+            self.db.commit()
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise ValueError(
+                "The CSV contains duplicate or conflicting "
+                "attendance records."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return UploadSummaryResponse(
+            file_type="attendance",
             total_rows=total_rows,
             inserted_rows=inserted_rows,
             updated_rows=updated_rows,
