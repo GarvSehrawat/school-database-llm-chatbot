@@ -15,7 +15,7 @@ from backend.services.fee_service import FeeService
 from backend.repositories.analytics_repository import AnalyticsRepository
 from backend.services.analytics_service import AnalyticsService
 from backend.services.csv_service import CSVService
-from backend.llm.parser import QueryParser
+from backend.llm.hybrid_parser import HybridQueryParser
 from backend.llm.query_service import QueryService
 
 def get_student_repository(
@@ -114,10 +114,10 @@ def get_csv_service(
     return CSVService(db)
 
 
-def get_query_parser() -> QueryParser:
-    """Provide the deterministic natural-language query parser."""
+def get_query_parser() -> HybridQueryParser:
+    """Provide the hybrid natural-language query parser."""
 
-    return QueryParser()
+    return HybridQueryParser()
 
 
 def get_query_service(
@@ -130,7 +130,7 @@ def get_query_service(
     analytics_service: AnalyticsService = Depends(
         get_analytics_service
     ),
-    parser: QueryParser = Depends(get_query_parser),
+    parser: HybridQueryParser = Depends(get_query_parser),
 ) -> QueryService:
     """Provide the natural-language query service."""
 
