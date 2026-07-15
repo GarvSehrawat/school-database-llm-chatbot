@@ -1,0 +1,4 @@
+student_id,subject_code,semester,internal_marks,external_marks,grade,grade_point,exam_type,academic_year
+STU121,CS201,2,27,61,,,END_SEMESTER,2025-2026
+STU122,CS202,2,25,57,,,END_SEMESTER,2025-2026
+STU123,CS203,2,24,52,,,END_SEMESTER,2025-2026

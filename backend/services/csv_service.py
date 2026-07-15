@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from backend.models.mark import Mark
 from backend.models.student import Student
 from backend.models.subject import Subject
 from backend.schemas.upload import UploadRowError, UploadSummaryResponse
@@ -25,17 +26,22 @@ class CSVService:
         "admission_year",
     }
 
-    STUDENT_OPTIONAL_COLUMNS = {
-        "email",
-        "section",
-    }
-
     SUBJECT_REQUIRED_COLUMNS = {
         "subject_code",
         "subject_name",
         "semester",
         "maximum_marks",
         "credit",
+    }
+
+    MARK_REQUIRED_COLUMNS = {
+        "student_id",
+        "subject_code",
+        "semester",
+        "internal_marks",
+        "external_marks",
+        "exam_type",
+        "academic_year",
     }
 
     def __init__(self, db: Session) -> None:
@@ -121,6 +127,52 @@ class CSVService:
             raise ValueError(
                 f"{field_name} must be a valid number."
             ) from exc
+
+    @staticmethod
+    def _parse_optional_float(
+        value: object,
+        field_name: str,
+    ) -> float | None:
+        """Convert an optional CSV value into a float or None."""
+
+        if pd.isna(value):
+            return None
+
+        cleaned = str(value).strip()
+
+        if not cleaned:
+            return None
+
+        try:
+            return float(cleaned)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field_name} must be a valid number."
+            ) from exc
+
+    @staticmethod
+    def _calculate_grade(
+        total_marks: float,
+        maximum_marks: int,
+    ) -> tuple[str, float]:
+        """Calculate a letter grade and grade point from percentage."""
+
+        percentage = (total_marks / maximum_marks) * 100
+
+        if percentage >= 90:
+            return "A+", 10.0
+        if percentage >= 80:
+            return "A", 9.0
+        if percentage >= 70:
+            return "B+", 8.0
+        if percentage >= 60:
+            return "B", 7.0
+        if percentage >= 50:
+            return "C", 6.0
+        if percentage >= 40:
+            return "D", 5.0
+
+        return "F", 0.0
 
     @staticmethod
     def _validate_csv_filename(filename: str | None) -> None:
@@ -461,6 +513,232 @@ class CSVService:
 
         return UploadSummaryResponse(
             file_type="subjects",
+            total_rows=total_rows,
+            inserted_rows=inserted_rows,
+            updated_rows=updated_rows,
+            skipped_rows=skipped_rows,
+            failed_rows=len(errors),
+            errors=errors,
+        )
+
+    def import_marks(
+        self,
+        file_content: bytes,
+        filename: str | None,
+        replace_existing: bool = False,
+    ) -> UploadSummaryResponse:
+        """
+        Validate and import student marks from a CSV file.
+
+        Students and subjects must already exist. A mark record is uniquely
+        identified by student, subject, semester, examination type, and
+        academic year.
+        """
+
+        dataframe = self._read_csv(
+            file_content=file_content,
+            filename=filename,
+        )
+
+        self._validate_required_columns(
+            dataframe=dataframe,
+            required_columns=self.MARK_REQUIRED_COLUMNS,
+        )
+
+        total_rows = len(dataframe)
+        inserted_rows = 0
+        updated_rows = 0
+        skipped_rows = 0
+        errors: list[UploadRowError] = []
+
+        try:
+            for dataframe_index, row in dataframe.iterrows():
+                csv_row_number = int(dataframe_index) + 2
+
+                try:
+                    student_school_id = self._clean_required_string(
+                        row.get("student_id"),
+                        "student_id",
+                    ).upper()
+
+                    subject_code = self._clean_required_string(
+                        row.get("subject_code"),
+                        "subject_code",
+                    ).upper()
+
+                    semester = self._parse_integer(
+                        row.get("semester"),
+                        "semester",
+                    )
+
+                    internal_marks = self._parse_float(
+                        row.get("internal_marks"),
+                        "internal_marks",
+                    )
+
+                    external_marks = self._parse_float(
+                        row.get("external_marks"),
+                        "external_marks",
+                    )
+
+                    exam_type = self._clean_required_string(
+                        row.get("exam_type"),
+                        "exam_type",
+                    ).upper()
+
+                    academic_year = self._clean_required_string(
+                        row.get("academic_year"),
+                        "academic_year",
+                    )
+
+                    if not 1 <= semester <= 8:
+                        raise ValueError(
+                            "semester must be between 1 and 8."
+                        )
+
+                    if internal_marks < 0:
+                        raise ValueError(
+                            "internal_marks cannot be negative."
+                        )
+
+                    if external_marks < 0:
+                        raise ValueError(
+                            "external_marks cannot be negative."
+                        )
+
+                    student = self.db.scalar(
+                        select(Student).where(
+                            Student.student_id == student_school_id
+                        )
+                    )
+
+                    if student is None:
+                        raise ValueError(
+                            f"Student '{student_school_id}' does not exist."
+                        )
+
+                    subject = self.db.scalar(
+                        select(Subject).where(
+                            Subject.subject_code == subject_code
+                        )
+                    )
+
+                    if subject is None:
+                        raise ValueError(
+                            f"Subject '{subject_code}' does not exist."
+                        )
+
+                    if subject.semester != semester:
+                        raise ValueError(
+                            f"Subject '{subject_code}' belongs to semester "
+                            f"{subject.semester}, not semester {semester}."
+                        )
+
+                    total_marks = round(
+                        internal_marks + external_marks,
+                        2,
+                    )
+
+                    if total_marks > subject.maximum_marks:
+                        raise ValueError(
+                            f"total_marks cannot exceed the subject maximum "
+                            f"of {subject.maximum_marks}."
+                        )
+
+                    grade = self._clean_optional_string(
+                        row.get("grade")
+                    )
+
+                    if grade is not None:
+                        grade = grade.upper()
+
+                    grade_point = self._parse_optional_float(
+                        row.get("grade_point"),
+                        "grade_point",
+                    )
+
+                    calculated_grade, calculated_grade_point = (
+                        self._calculate_grade(
+                            total_marks=total_marks,
+                            maximum_marks=subject.maximum_marks,
+                        )
+                    )
+
+                    if grade is None:
+                        grade = calculated_grade
+
+                    if grade_point is None:
+                        grade_point = calculated_grade_point
+
+                    if not 0 <= grade_point <= 10:
+                        raise ValueError(
+                            "grade_point must be between 0 and 10."
+                        )
+
+                    existing_mark = self.db.scalar(
+                        select(Mark).where(
+                            Mark.student_id == student.id,
+                            Mark.subject_id == subject.id,
+                            Mark.semester == semester,
+                            Mark.exam_type == exam_type,
+                            Mark.academic_year == academic_year,
+                        )
+                    )
+
+                    if existing_mark is not None:
+                        if not replace_existing:
+                            skipped_rows += 1
+                            continue
+
+                        existing_mark.internal_marks = internal_marks
+                        existing_mark.external_marks = external_marks
+                        existing_mark.total_marks = total_marks
+                        existing_mark.grade = grade
+                        existing_mark.grade_point = grade_point
+
+                        updated_rows += 1
+                        continue
+
+                    mark = Mark(
+                        student_id=student.id,
+                        subject_id=subject.id,
+                        semester=semester,
+                        internal_marks=internal_marks,
+                        external_marks=external_marks,
+                        total_marks=total_marks,
+                        grade=grade,
+                        grade_point=grade_point,
+                        exam_type=exam_type,
+                        academic_year=academic_year,
+                    )
+
+                    self.db.add(mark)
+                    inserted_rows += 1
+
+                except ValueError as exc:
+                    errors.append(
+                        UploadRowError(
+                            row=csv_row_number,
+                            field=None,
+                            message=str(exc),
+                        )
+                    )
+
+            self.db.commit()
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise ValueError(
+                "The CSV contains duplicate or conflicting mark records."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return UploadSummaryResponse(
+            file_type="marks",
             total_rows=total_rows,
             inserted_rows=inserted_rows,
             updated_rows=updated_rows,
