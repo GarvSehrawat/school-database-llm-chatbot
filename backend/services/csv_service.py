@@ -14,7 +14,9 @@ from backend.models.student import Student
 from backend.models.subject import Subject
 from backend.schemas.upload import UploadRowError, UploadSummaryResponse
 from backend.models.attendance import Attendance
-
+from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from backend.models.fee import Fee, FeeStatus
 
 class CSVService:
     """Validate CSV files and import their records into the database."""
@@ -53,6 +55,16 @@ class CSVService:
         "classes_attended",
         "academic_year",
     }
+
+    FEE_REQUIRED_COLUMNS = {
+        "student_id",
+        "semester",
+        "total_fee",
+        "amount_paid",
+        "status",
+        "academic_year",
+    }
+
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -158,6 +170,73 @@ class CSVService:
         except (TypeError, ValueError) as exc:
             raise ValueError(
                 f"{field_name} must be a valid number."
+            ) from exc
+    
+
+    @staticmethod
+    def _parse_money_to_paise(
+        value: object,
+        field_name: str,
+    ) -> int:
+        """
+        Convert a rupee amount from the CSV into integer paise.
+
+        Example: 1250.50 rupees becomes 125050 paise.
+        """
+
+        if pd.isna(value):
+            raise ValueError(f"{field_name} is required.")
+
+        cleaned = str(value).strip()
+
+        if not cleaned:
+            raise ValueError(f"{field_name} is required.")
+
+        try:
+            rupee_amount = Decimal(cleaned)
+        except InvalidOperation as exc:
+            raise ValueError(
+                f"{field_name} must be a valid monetary amount."
+            ) from exc
+
+        if not rupee_amount.is_finite():
+            raise ValueError(
+                f"{field_name} must be a finite monetary amount."
+            )
+
+        if rupee_amount < 0:
+            raise ValueError(
+                f"{field_name} cannot be negative."
+            )
+
+        rounded_amount = rupee_amount.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP,
+        )
+
+        return int(rounded_amount * 100)
+
+
+    @staticmethod
+    def _parse_optional_date(
+        value: object,
+        field_name: str,
+    ) -> date | None:
+        """Parse an optional ISO date in YYYY-MM-DD format."""
+
+        if pd.isna(value):
+            return None
+
+        cleaned = str(value).strip()
+
+        if not cleaned:
+            return None
+
+        try:
+            return date.fromisoformat(cleaned)
+        except ValueError as exc:
+            raise ValueError(
+                f"{field_name} must use YYYY-MM-DD format."
             ) from exc
 
     @staticmethod
@@ -940,6 +1019,218 @@ class CSVService:
 
         return UploadSummaryResponse(
             file_type="attendance",
+            total_rows=total_rows,
+            inserted_rows=inserted_rows,
+            updated_rows=updated_rows,
+            skipped_rows=skipped_rows,
+            failed_rows=len(errors),
+            errors=errors,
+        )
+    
+    def import_fees(
+        self,
+        file_content: bytes,
+        filename: str | None,
+        replace_existing: bool = False,
+    ) -> UploadSummaryResponse:
+        """
+        Validate and import student fee records.
+
+        A fee record is uniquely identified by student, semester,
+        and academic year. CSV monetary values are provided in rupees
+        and stored in the database as integer paise.
+        """
+
+        dataframe = self._read_csv(
+            file_content=file_content,
+            filename=filename,
+        )
+
+        self._validate_required_columns(
+            dataframe=dataframe,
+            required_columns=self.FEE_REQUIRED_COLUMNS,
+        )
+
+        total_rows = len(dataframe)
+        inserted_rows = 0
+        updated_rows = 0
+        skipped_rows = 0
+        errors: list[UploadRowError] = []
+
+        try:
+            for dataframe_index, row in dataframe.iterrows():
+                csv_row_number = int(dataframe_index) + 2
+
+                try:
+                    student_school_id = self._clean_required_string(
+                        row.get("student_id"),
+                        "student_id",
+                    ).upper()
+
+                    semester = self._parse_integer(
+                        row.get("semester"),
+                        "semester",
+                    )
+
+                    total_fee = self._parse_money_to_paise(
+                        row.get("total_fee"),
+                        "total_fee",
+                    )
+
+                    amount_paid = self._parse_money_to_paise(
+                        row.get("amount_paid"),
+                        "amount_paid",
+                    )
+
+                    status_value = self._clean_required_string(
+                        row.get("status"),
+                        "status",
+                    ).upper()
+
+                    academic_year = self._clean_required_string(
+                        row.get("academic_year"),
+                        "academic_year",
+                    )
+
+                    due_date = self._parse_optional_date(
+                        row.get("due_date"),
+                        "due_date",
+                    )
+
+                    payment_date = self._parse_optional_date(
+                        row.get("payment_date"),
+                        "payment_date",
+                    )
+
+                    if not 1 <= semester <= 8:
+                        raise ValueError(
+                            "semester must be between 1 and 8."
+                        )
+
+                    if amount_paid > total_fee:
+                        raise ValueError(
+                            "amount_paid cannot exceed total_fee."
+                        )
+
+                    try:
+                        fee_status = FeeStatus(status_value)
+                    except ValueError as exc:
+                        allowed_statuses = ", ".join(
+                            status.value for status in FeeStatus
+                        )
+
+                        raise ValueError(
+                            f"status must be one of: {allowed_statuses}."
+                        ) from exc
+
+                    amount_due = total_fee - amount_paid
+
+                    if fee_status == FeeStatus.PAID and amount_due != 0:
+                        raise ValueError(
+                            "PAID status requires amount_paid to equal "
+                            "total_fee."
+                        )
+
+                    if (
+                        fee_status == FeeStatus.PARTIALLY_PAID
+                        and not 0 < amount_paid < total_fee
+                    ):
+                        raise ValueError(
+                            "PARTIALLY_PAID status requires amount_paid "
+                            "to be greater than 0 and less than total_fee."
+                        )
+
+                    if (
+                        fee_status in {
+                            FeeStatus.PENDING,
+                            FeeStatus.OVERDUE,
+                        }
+                        and amount_due == 0
+                    ):
+                        raise ValueError(
+                            f"{fee_status.value} status requires an "
+                            "outstanding amount."
+                        )
+
+                    if payment_date is not None and amount_paid == 0:
+                        raise ValueError(
+                            "payment_date cannot be provided when "
+                            "amount_paid is 0."
+                        )
+
+                    student = self.db.scalar(
+                        select(Student).where(
+                            Student.student_id == student_school_id
+                        )
+                    )
+
+                    if student is None:
+                        raise ValueError(
+                            f"Student '{student_school_id}' does not exist."
+                        )
+
+                    existing_fee = self.db.scalar(
+                        select(Fee).where(
+                            Fee.student_id == student.id,
+                            Fee.semester == semester,
+                            Fee.academic_year == academic_year,
+                        )
+                    )
+
+                    if existing_fee is not None:
+                        if not replace_existing:
+                            skipped_rows += 1
+                            continue
+
+                        existing_fee.total_fee = total_fee
+                        existing_fee.amount_paid = amount_paid
+                        existing_fee.amount_due = amount_due
+                        existing_fee.status = fee_status
+                        existing_fee.due_date = due_date
+                        existing_fee.payment_date = payment_date
+
+                        updated_rows += 1
+                        continue
+
+                    fee = Fee(
+                        student_id=student.id,
+                        semester=semester,
+                        total_fee=total_fee,
+                        amount_paid=amount_paid,
+                        amount_due=amount_due,
+                        status=fee_status,
+                        due_date=due_date,
+                        payment_date=payment_date,
+                        academic_year=academic_year,
+                    )
+
+                    self.db.add(fee)
+                    inserted_rows += 1
+
+                except ValueError as exc:
+                    errors.append(
+                        UploadRowError(
+                            row=csv_row_number,
+                            field=None,
+                            message=str(exc),
+                        )
+                    )
+
+            self.db.commit()
+
+        except IntegrityError as exc:
+            self.db.rollback()
+
+            raise ValueError(
+                "The CSV contains duplicate or conflicting fee records."
+            ) from exc
+
+        except Exception:
+            self.db.rollback()
+            raise
+
+        return UploadSummaryResponse(
+            file_type="fees",
             total_rows=total_rows,
             inserted_rows=inserted_rows,
             updated_rows=updated_rows,
