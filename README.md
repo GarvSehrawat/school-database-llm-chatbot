@@ -250,6 +250,6 @@ The model can only return predefined intents and validated entities. The backend
 
 **Garv Sehrawat**
 
-B.Tech Computer Science and Engineering student interested in Python, backend development, machine learning, and LLM applications.
+B.Tech Computer Science and Engineering student interested in Python, artificial intelligence, machine learning, and LLM applications.
 
 > All student data used in this project is fictional.
