@@ -233,10 +233,58 @@ def render_upload_summary(result: dict[str, Any]) -> None:
         )
 
 
+
+def clear_chat_history() -> None:
+    """Reset the chat conversation to the welcome message."""
+
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": (
+                "Hello! Ask me about student profiles, marks, "
+                "attendance, fees, ranks, toppers, or school analytics."
+            ),
+            "data": None,
+        }
+    ]
+
+
 def render_upload_sidebar(backend_online: bool) -> None:
-    """Render CSV upload controls in the Streamlit sidebar."""
+    """Render CSV uploads and chat controls in the sidebar."""
 
     with st.sidebar:
+        st.header("💬 Chat Controls")
+
+        if st.button(
+            "Clear chat",
+            use_container_width=True,
+        ):
+            clear_chat_history()
+            st.rerun()
+
+        st.subheader("Example Questions")
+
+        example_queries = [
+            "Show semester 2 marks of STU121",
+            "Show semester 2 attendance of STU121",
+            "Show semester 2 fees of STU122",
+            "Show top 5 students in semester 2",
+            "Show students with attendance below 85 percent",
+            "Show pending fees for semester 2",
+            "Show semester 2 branch toppers",
+        ]
+
+        for index, example_query in enumerate(example_queries):
+            if st.button(
+                example_query,
+                key=f"example_query_{index}",
+                use_container_width=True,
+            ):
+                st.session_state.pending_query = example_query
+                st.rerun()
+
+        st.divider()
+
         st.header("📁 CSV Data Upload")
 
         st.caption(
@@ -285,7 +333,6 @@ def render_upload_sidebar(backend_online: bool) -> None:
             st.info(
                 "Start FastAPI before using CSV uploads."
             )
-
             return
 
         if not upload_clicked:
@@ -454,6 +501,14 @@ def main() -> None:
         "Example: Show semester 2 marks of STU121"
     )
 
+    pending_query = st.session_state.pop(
+        "pending_query",
+        None,
+    )
+
+    if pending_query:
+        user_query = pending_query
+
     if not user_query:
         return
 
@@ -472,7 +527,6 @@ def main() -> None:
         user_query=user_query,
         backend_online=backend_online,
     )
-
 
 if __name__ == "__main__":
     main()
