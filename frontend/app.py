@@ -102,16 +102,47 @@ def initialize_chat_history() -> None:
                     "Hello! Ask me about student profiles, marks, "
                     "attendance, fees, ranks, toppers, or school analytics."
                 ),
+                "data": None,
             }
         ]
 
 
+def render_query_data(data: Any) -> None:
+    """Display structured query data in a readable format."""
+
+    if not data:
+        return
+
+    if isinstance(data, list):
+        if all(isinstance(item, dict) for item in data):
+            st.dataframe(
+                data,
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.json(data)
+
+        return
+
+    if isinstance(data, dict):
+        st.json(data)
+        return
+
+    st.write(data)
+
+
 def display_chat_history() -> None:
-    """Display all saved chat messages."""
+    """Display saved chat messages and their structured result data."""
 
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+
+            message_data = message.get("data")
+
+            if message_data:
+                render_query_data(message_data)
 
 
 def extract_http_error_message(
@@ -313,6 +344,21 @@ def render_backend_status(backend_online: bool) -> None:
         )
 
 
+def save_assistant_message(
+    content: str,
+    data: Any = None,
+) -> None:
+    """Save an assistant response and optional structured data."""
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": content,
+            "data": data,
+        }
+    )
+
+
 def render_chat_response(
     user_query: str,
     backend_online: bool,
@@ -328,12 +374,7 @@ def render_chat_response(
 
             st.error(error_message)
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_message,
-                }
-            )
+            save_assistant_message(error_message)
 
             return
 
@@ -346,13 +387,15 @@ def render_chat_response(
                 "The backend returned no readable answer.",
             )
 
+            result_data = result.get("data")
+
             st.markdown(answer)
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": answer,
-                }
+            render_query_data(result_data)
+
+            save_assistant_message(
+                content=answer,
+                data=result_data,
             )
 
         except requests.HTTPError as exc:
@@ -363,12 +406,7 @@ def render_chat_response(
 
             st.error(error_message)
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_message,
-                }
-            )
+            save_assistant_message(error_message)
 
         except requests.Timeout:
             error_message = (
@@ -377,12 +415,7 @@ def render_chat_response(
 
             st.error(error_message)
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_message,
-                }
-            )
+            save_assistant_message(error_message)
 
         except requests.RequestException:
             error_message = (
@@ -392,12 +425,7 @@ def render_chat_response(
 
             st.error(error_message)
 
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_message,
-                }
-            )
+            save_assistant_message(error_message)
 
 
 def main() -> None:
@@ -433,6 +461,7 @@ def main() -> None:
         {
             "role": "user",
             "content": user_query,
+            "data": None,
         }
     )
 
