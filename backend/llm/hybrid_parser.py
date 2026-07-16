@@ -46,14 +46,13 @@ class HybridQueryParser:
             return None
 
         model = AzureChatOpenAI(
-            azure_deployment=self.settings.azure_openai_chat_deployment,
-            azure_endpoint=self.settings.azure_openai_endpoint,
-            api_key=self.settings.azure_openai_api_key,
-            api_version=self.settings.azure_openai_api_version,
-            temperature=self.settings.llm_temperature,
-            timeout=self.settings.llm_timeout_seconds,
-            max_retries=self.settings.llm_max_retries,
-        )
+    azure_deployment=self.settings.azure_openai_chat_deployment,
+    azure_endpoint=self.settings.azure_openai_endpoint,
+    api_key=self.settings.azure_openai_api_key,
+    api_version=self.settings.azure_openai_api_version,
+    timeout=self.settings.llm_timeout_seconds,
+    max_retries=self.settings.llm_max_retries,
+)
 
         return model.with_structured_output(ParsedQuery)
 
