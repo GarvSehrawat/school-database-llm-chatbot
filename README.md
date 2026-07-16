@@ -4,7 +4,7 @@ A full-stack school database chatbot built with FastAPI, SQLAlchemy, SQLite, Str
 
 The application allows users to upload school data through CSV files and ask natural-language questions about students, marks, attendance, fees, rankings, and analytics.
 
-##Live Demo
+## Live Demo
 
 - Frontend: https://school-database-llm-chatbot-vsvzuywbex9mruk6rxlvau.streamlit.app/
 - API Docs: https://school-chatbot-api-e3j0.onrender.com/docs
