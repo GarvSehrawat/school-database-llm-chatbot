@@ -3,6 +3,17 @@
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.dependencies import get_query_parser
+from backend.llm.parser import QueryParser
+
+
+def override_query_parser() -> QueryParser:
+    """Use the deterministic parser during API tests."""
+
+    return QueryParser()
+
+
+app.dependency_overrides[get_query_parser] = override_query_parser
 
 
 client = TestClient(app)
