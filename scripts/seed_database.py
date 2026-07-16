@@ -8,38 +8,116 @@ from datetime import date, timedelta
 from sqlalchemy import delete, select
 
 from backend.database import SessionLocal, create_database_tables
-from backend.models import Attendance, Fee, FeeStatus, Mark, Student, Subject
+from backend.models import (
+    Attendance,
+    Fee,
+    FeeStatus,
+    Mark,
+    Student,
+    Subject,
+)
 
 
 ACADEMIC_YEAR = "2025-2026"
 RANDOM_SEED = 42
+TOTAL_STUDENTS = 120
 
 
-STUDENT_DATA = [
-    ("STU101", "Rahul Sharma", "rahul.sharma@example.com", "CSE", "A", 2023),
-    ("STU102", "Priya Singh", "priya.singh@example.com", "CSE", "A", 2023),
-    ("STU103", "Amit Kumar", "amit.kumar@example.com", "CSE", "B", 2023),
-    ("STU104", "Neha Verma", "neha.verma@example.com", "IT", "A", 2023),
-    ("STU105", "Arjun Mehta", "arjun.mehta@example.com", "IT", "B", 2023),
-    ("STU106", "Simran Kaur", "simran.kaur@example.com", "ECE", "A", 2023),
-    ("STU107", "Rohan Gupta", "rohan.gupta@example.com", "ECE", "B", 2023),
-    ("STU108", "Ananya Roy", "ananya.roy@example.com", "CSE", "A", 2023),
-    ("STU109", "Vikram Yadav", "vikram.yadav@example.com", "ME", "A", 2023),
-    ("STU110", "Sneha Patel", "sneha.patel@example.com", "CSE", "B", 2023),
-    ("STU111", "Karan Malhotra", "karan.malhotra@example.com", "IT", "A", 2023),
-    ("STU112", "Isha Gupta", "isha.gupta@example.com", "CSE", "A", 2023),
-    ("STU113", "Aditya Joshi", "aditya.joshi@example.com", "ECE", "A", 2023),
-    ("STU114", "Meera Nair", "meera.nair@example.com", "IT", "B", 2023),
-    ("STU115", "Dev Kapoor", "dev.kapoor@example.com", "ME", "A", 2023),
-    ("STU116", "Pooja Mishra", "pooja.mishra@example.com", "CSE", "B", 2023),
-    ("STU117", "Nikhil Jain", "nikhil.jain@example.com", "ECE", "B", 2023),
-    ("STU118", "Riya Das", "riya.das@example.com", "IT", "A", 2023),
-    ("STU119", "Sahil Khan", "sahil.khan@example.com", "CSE", "A", 2023),
-    ("STU120", "Tanya Bansal", "tanya.bansal@example.com", "CSE", "B", 2023),
+FIRST_NAMES = [
+    "Aarav",
+    "Aditi",
+    "Aditya",
+    "Akash",
+    "Aman",
+    "Ananya",
+    "Anjali",
+    "Ankit",
+    "Arjun",
+    "Aryan",
+    "Ayush",
+    "Dev",
+    "Diya",
+    "Harsh",
+    "Isha",
+    "Kabir",
+    "Karan",
+    "Kavya",
+    "Khushi",
+    "Manav",
+    "Meera",
+    "Mohit",
+    "Muskan",
+    "Neha",
+    "Nikhil",
+    "Pooja",
+    "Pranav",
+    "Priya",
+    "Rahul",
+    "Riya",
+    "Rohan",
+    "Sahil",
+    "Sakshi",
+    "Samarth",
+    "Simran",
+    "Sneha",
+    "Tanvi",
+    "Varun",
+    "Vikram",
+    "Yash",
+]
+
+LAST_NAMES = [
+    "Agarwal",
+    "Arora",
+    "Bansal",
+    "Chauhan",
+    "Das",
+    "Gupta",
+    "Jain",
+    "Joshi",
+    "Kapoor",
+    "Kaur",
+    "Khan",
+    "Kumar",
+    "Malhotra",
+    "Mehta",
+    "Mishra",
+    "Nair",
+    "Pandey",
+    "Patel",
+    "Rajput",
+    "Rana",
+    "Roy",
+    "Saini",
+    "Saxena",
+    "Sharma",
+    "Singh",
+    "Thakur",
+    "Verma",
+    "Yadav",
+]
+
+BRANCHES = [
+    "CSE",
+    "IT",
+    "ECE",
+    "ME",
+]
+
+SECTIONS = [
+    "A",
+    "B",
 ]
 
 
 SUBJECT_DATA = [
+    # Semester 2
+    ("CS201", "Data Structures", 2, 100, 4.0),
+    ("CS202", "Object Oriented Programming", 2, 100, 4.0),
+    ("CS203", "Discrete Mathematics", 2, 100, 3.0),
+    ("CS204", "Computer Organization", 2, 100, 4.0),
+    ("CS205", "Environmental Studies", 2, 100, 2.0),
+
     # Semester 4
     ("CS401", "Database Management Systems", 4, 100, 4.0),
     ("CS402", "Operating Systems", 4, 100, 4.0),
@@ -61,14 +139,19 @@ def calculate_grade(total_marks: float) -> tuple[str, float]:
 
     if total_marks >= 90:
         return "A+", 10.0
+
     if total_marks >= 80:
         return "A", 9.0
+
     if total_marks >= 70:
         return "B+", 8.0
+
     if total_marks >= 60:
         return "B", 7.0
+
     if total_marks >= 50:
         return "C", 6.0
+
     if total_marks >= 40:
         return "D", 5.0
 
@@ -80,7 +163,7 @@ def determine_fee_status(
     amount_paid: int,
     due_date: date,
 ) -> FeeStatus:
-    """Derive fee status from the payment and due-date information."""
+    """Derive fee status from payment and due-date information."""
 
     if amount_paid >= total_fee:
         return FeeStatus.PAID
@@ -98,7 +181,7 @@ def clear_existing_data() -> None:
     """
     Remove existing development data.
 
-    Child tables are cleared before their parent tables to avoid
+    Child tables are cleared before parent tables to avoid
     foreign-key relationship problems.
     """
 
@@ -111,19 +194,66 @@ def clear_existing_data() -> None:
         db.commit()
 
 
+def generate_student_name(index: int) -> str:
+    """Generate a deterministic fictional student name."""
+
+    first_name = FIRST_NAMES[index % len(FIRST_NAMES)]
+
+    last_name_index = (
+        index // len(FIRST_NAMES) + index
+    ) % len(LAST_NAMES)
+
+    last_name = LAST_NAMES[last_name_index]
+
+    return f"{first_name} {last_name}"
+
+
+def generate_student_email(
+    name: str,
+    student_id: str,
+) -> str:
+    """Generate a unique fictional email address."""
+
+    normalized_name = (
+        name.lower()
+        .replace(" ", ".")
+        .replace("'", "")
+    )
+
+    return f"{normalized_name}.{student_id.lower()}@example.com"
+
+
 def create_students() -> list[Student]:
-    """Create fictional student ORM objects."""
+    """Create 120 fictional student ORM objects."""
 
     students: list[Student] = []
 
-    for student_id, name, email, branch, section, admission_year in STUDENT_DATA:
+    for index in range(TOTAL_STUDENTS):
+        numeric_id = 101 + index
+        student_id = f"STU{numeric_id}"
+
+        name = generate_student_name(index)
+        email = generate_student_email(name, student_id)
+
+        branch = BRANCHES[index % len(BRANCHES)]
+        section = SECTIONS[index % len(SECTIONS)]
+
+        # Most students are currently in semesters 4 or 5.
+        current_semester = 4 if index % 3 == 0 else 5
+
+        admission_year = (
+            2024
+            if current_semester == 4
+            else 2023
+        )
+
         students.append(
             Student(
                 student_id=student_id,
                 name=name,
                 email=email,
                 branch=branch,
-                current_semester=5,
+                current_semester=current_semester,
                 section=section,
                 admission_year=admission_year,
             )
@@ -137,7 +267,13 @@ def create_subjects() -> list[Subject]:
 
     subjects: list[Subject] = []
 
-    for code, name, semester, maximum_marks, credit in SUBJECT_DATA:
+    for (
+        code,
+        name,
+        semester,
+        maximum_marks,
+        credit,
+    ) in SUBJECT_DATA:
         subjects.append(
             Subject(
                 subject_code=code,
@@ -155,18 +291,34 @@ def create_marks(
     students: list[Student],
     subjects: list[Subject],
 ) -> list[Mark]:
-    """Generate deterministic fictional marks for every student."""
+    """Generate deterministic marks for every student and subject."""
 
     marks: list[Mark] = []
 
     for student_index, student in enumerate(students):
         for subject_index, subject in enumerate(subjects):
-            # Create realistic variation while keeping the dataset reproducible.
-            base_score = 52 + ((student_index * 7 + subject_index * 5) % 43)
+            score_variation = (
+                student_index * 7
+                + subject_index * 5
+                + subject.semester * 3
+            ) % 51
 
-            internal_marks = round(base_score * 0.30, 1)
-            external_marks = round(base_score - internal_marks, 1)
-            total_marks = round(internal_marks + external_marks, 1)
+            total_marks = 45 + score_variation
+
+            internal_marks = round(
+                total_marks * 0.30,
+                1,
+            )
+
+            external_marks = round(
+                total_marks - internal_marks,
+                1,
+            )
+
+            total_marks = round(
+                internal_marks + external_marks,
+                1,
+            )
 
             grade, grade_point = calculate_grade(total_marks)
 
@@ -200,10 +352,10 @@ def create_attendance(
         for subject_index, subject in enumerate(subjects):
             classes_held = 60
 
-            # Produces percentages between roughly 60% and 98%.
-            classes_attended = 36 + (
-                (student_index * 3 + subject_index * 4) % 24
-            )
+            classes_attended = 34 + (
+                student_index * 3
+                + subject_index * 4
+            ) % 26
 
             attendance_percentage = round(
                 (classes_attended / classes_held) * 100,
@@ -231,26 +383,32 @@ def create_fees(students: list[Student]) -> list[Fee]:
     fees: list[Fee] = []
 
     # Values are stored in paise.
-    total_fee = 5_000_000  # ₹50,000
+    total_fee = 7_500_000  # ₹75,000
 
     payment_patterns = [
-        5_000_000,  # Paid
+        7_500_000,  # Paid
+        4_500_000,  # Partially paid
         3_000_000,  # Partially paid
-        0,          # Pending
-        4_000_000,  # Partially paid
+        0,          # Pending or overdue
     ]
 
     for index, student in enumerate(students):
-        amount_paid = payment_patterns[index % len(payment_patterns)]
+        amount_paid = payment_patterns[
+            index % len(payment_patterns)
+        ]
 
-        # Some unpaid records deliberately receive an expired due date.
-        if index % 5 == 0:
+        if index % 6 == 0:
             due_date = date.today() - timedelta(days=30)
         else:
             due_date = date.today() + timedelta(days=30)
 
         amount_due = total_fee - amount_paid
-        status = determine_fee_status(total_fee, amount_paid, due_date)
+
+        status = determine_fee_status(
+            total_fee=total_fee,
+            amount_paid=amount_paid,
+            due_date=due_date,
+        )
 
         payment_date = (
             date.today() - timedelta(days=10)
@@ -261,7 +419,7 @@ def create_fees(students: list[Student]) -> list[Fee]:
         fees.append(
             Fee(
                 student=student,
-                semester=5,
+                semester=student.current_semester,
                 total_fee=total_fee,
                 amount_paid=amount_paid,
                 amount_due=amount_due,
@@ -276,7 +434,7 @@ def create_fees(students: list[Student]) -> list[Fee]:
 
 
 def seed_database() -> None:
-    """Create tables, reset existing sample data, and insert fresh records."""
+    """Reset the development database and insert fictional records."""
 
     random.seed(RANDOM_SEED)
 
@@ -286,8 +444,16 @@ def seed_database() -> None:
     students = create_students()
     subjects = create_subjects()
 
-    marks = create_marks(students, subjects)
-    attendance_records = create_attendance(students, subjects)
+    marks = create_marks(
+        students=students,
+        subjects=subjects,
+    )
+
+    attendance_records = create_attendance(
+        students=students,
+        subjects=subjects,
+    )
+
     fees = create_fees(students)
 
     with SessionLocal() as db:
@@ -303,7 +469,10 @@ def seed_database() -> None:
     print(f"Students inserted: {len(students)}")
     print(f"Subjects inserted: {len(subjects)}")
     print(f"Marks inserted: {len(marks)}")
-    print(f"Attendance records inserted: {len(attendance_records)}")
+    print(
+        "Attendance records inserted: "
+        f"{len(attendance_records)}"
+    )
     print(f"Fee records inserted: {len(fees)}")
 
 
@@ -311,18 +480,35 @@ def verify_seeded_data() -> None:
     """Print record counts after seeding."""
 
     with SessionLocal() as db:
-        student_count = len(db.scalars(select(Student)).all())
-        subject_count = len(db.scalars(select(Subject)).all())
-        mark_count = len(db.scalars(select(Mark)).all())
-        attendance_count = len(db.scalars(select(Attendance)).all())
-        fee_count = len(db.scalars(select(Fee)).all())
+        student_count = len(
+            db.scalars(select(Student)).all()
+        )
+
+        subject_count = len(
+            db.scalars(select(Subject)).all()
+        )
+
+        mark_count = len(
+            db.scalars(select(Mark)).all()
+        )
+
+        attendance_count = len(
+            db.scalars(select(Attendance)).all()
+        )
+
+        fee_count = len(
+            db.scalars(select(Fee)).all()
+        )
 
     print("\nVerification")
     print("------------------------------")
     print(f"Students: {student_count}")
     print(f"Subjects: {subject_count}")
     print(f"Marks: {mark_count}")
-    print(f"Attendance records: {attendance_count}")
+    print(
+        "Attendance records: "
+        f"{attendance_count}"
+    )
     print(f"Fee records: {fee_count}")
 
 
