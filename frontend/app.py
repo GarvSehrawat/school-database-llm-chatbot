@@ -8,7 +8,10 @@ import requests
 import streamlit as st
 
 
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = st.secrets.get(
+    "API_BASE_URL",
+    "http://127.0.0.1:8000",
+).rstrip("/")
 
 QUERY_ENDPOINT = f"{API_BASE_URL}/api/v1/query"
 HEALTH_ENDPOINT = f"{API_BASE_URL}/api/v1/health"
@@ -35,7 +38,7 @@ def check_backend_health() -> bool:
     try:
         response = requests.get(
             HEALTH_ENDPOINT,
-            timeout=5,
+            timeout=90,
         )
 
         return response.status_code == 200
